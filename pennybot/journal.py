@@ -157,6 +157,9 @@ class Session:
 
     def check(self) -> None:
         now = now_et()
+        if now.weekday() >= 5:
+            log("weekend - the US market is closed, nothing to check")
+            return
         ranked, watch = self.watch_list()
         for _, r in ranked.iterrows():
             self.grades[r["ticker"]] = (r["grade"], int(r["score"]))
