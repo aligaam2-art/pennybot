@@ -51,7 +51,8 @@ catalyst:
       [offering, registered direct, private placement, securities purchase agreement, warrants,
        reverse split, reverse stock split, delist, deficiency, noncompliance, non-compliance,
        bankrupt, bankruptcy, chapter 11, going concern, at-the-market, dilution, dilutive, warrant,
-       falls, fell, declines, declined, drops, plunges, misses, missed, loss widens, net loss, halted, suspends]
+       falls, fell, declines, declined, drops, plunges, misses, missed, loss widens, net loss, halted, suspends,
+       warning letter, notice of delisting, listing standards, minimum bid]
     strong:   # real reasons a stock can keep running
       [fda, approval, approved, clearance, contract, awarded, award, partnership, strategic,
        agreement, acquire, acquisition, merger, buyout, takeover, earnings, revenue, record,
