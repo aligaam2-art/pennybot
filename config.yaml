@@ -1,0 +1,160 @@
+# ------------------------------------------------------------------
+# Pennybot screener settings
+# Edit the numbers below and save. The dashboard uses these as its
+# starting values (you can still change them live in the sidebar).
+# ------------------------------------------------------------------
+
+display_timezone: Africa/Dar_es_Salaam   # all times are shown in this zone
+market_timezone: America/New_York        # US market clock (handles daylight saving)
+
+screener:
+  # Which exchanges to allow. OTC is always excluded.
+  exchanges: [NASDAQ, NYSE, NYSE American]
+
+  # Drop SPACs, rights, warrants and units (not real operating companies)
+  exclude_spacs_rights_warrants: true
+
+  min_price: 0.50          # dollars
+  max_price: 5.00          # dollars
+  min_change_pct: 5.0      # % up vs yesterday's close
+
+  max_market_cap: 1000000000   # $1B
+  keep_unknown_market_cap: true  # keep stocks with no market-cap data (marked "unknown")
+
+  min_volume:
+    intraday: 1000000      # shares traded today (same as your Webull screener)
+    premarket: 100000      # used later when premarket mode is added
+
+  use_relative_volume: true
+  min_relative_volume: 2.0     # today's volume vs normal for this time of day
+  rvol_lookback_days: 10
+
+  use_float: true
+  max_float: 30000000          # 30M shares. Stocks with no float data are KEPT and marked "unknown"
+
+output:
+  folder: output           # a CSV + filter log is saved here for every scan
+
+# ------------------------------------------------------------------
+# Phase 2a: catalyst check (why is the stock moving?)
+# Headlines are matched against these keywords (lower-case).
+# Order of checks: ignore -> danger -> strong -> weak. Whole words only.
+# ------------------------------------------------------------------
+catalyst:
+  sec_user_agent: "pennybot personal research tool"
+  filing_lookback_days: 90       # how far back to look for dilution filings
+  keywords:
+    ignore:   # generic market round-ups, not real news about the company
+      [most active, top gainers, top losers, stocks moving, movers, why is, stocks to watch,
+       trending stock, shares are trading, mid-day, midday, pre-market, premarket]
+    danger:   # usually bad for the stock price
+      [offering, registered direct, private placement, securities purchase agreement, warrants,
+       reverse split, reverse stock split, delist, deficiency, noncompliance, non-compliance,
+       bankrupt, bankruptcy, chapter 11, going concern, at-the-market, dilution, dilutive, warrant,
+       falls, fell, declines, declined, drops, plunges, misses, missed, loss widens, net loss, halted, suspends]
+    strong:   # real reasons a stock can keep running
+      [fda, approval, approved, clearance, contract, awarded, award, partnership, strategic,
+       agreement, acquire, acquisition, merger, buyout, takeover, earnings, revenue, record,
+       patent, phase 1, phase 2, phase 3, topline, positive data, breakthrough, orders, license,
+       collaboration, bitcoin, crypto, ai, artificial intelligence]
+    weak:     # news, but rarely moves a stock for long
+      [milestone, appoints, appointment, director, ceo, conference, present, webinar, launch,
+       letter to shareholders, update, expands, joins, investor]
+
+# ------------------------------------------------------------------
+# Phase 2b: selection score (0-100) for DAY TRADING.
+# Lists are [threshold, points]; the first matching row wins.
+# ------------------------------------------------------------------
+selection:
+  top_picks: 3
+  fresh_news_hours: 24        # good news this recent counts as "fresh"
+  recent_news_hours: 72       # strong news still counts (fewer points); danger news counts in full
+  grades: {A: 70, B: 50, C: 30}   # below C = "Avoid"
+  points:
+    catalyst:
+      strong_fresh: 35
+      strong_recent: 20
+      weak_fresh: 10
+      danger_fresh: -25
+    rel_volume_at_least: [[100, 20], [20, 15], [5, 10], [2, 5]]
+    float_under: [[5000000, 20], [10000000, 15], [20000000, 8], [30000000, 4]]
+    change_pct_at_least: [[100, 5], [10, 12], [5, 6]]     # >100% = chasing risk, fewer points
+    off_high_pct_within: [[5, 10], [15, 5], [25, 0], [1000, -10]]   # how far below today's high
+    # Bid/ask spread scoring is OFF: Yahoo's free bid/ask is often stale. Check the spread
+    # yourself in Webull before trading. To turn on later: [[3, -10]]
+    spread_pct_over: []
+    dilution:
+      offering_filing: -20      # S-1/S-3/F-1/F-3/424B or registration made effective
+      unregistered_sale: -15    # 8-K item 3.02 (shares sold privately)
+      delisting_notice: -10     # 8-K item 3.01
+      reverse_split_signal: -5  # proxy / information statement (often a reverse-split vote)
+      max_penalty: -30
+
+# ------------------------------------------------------------------
+# Phase 3: charts and entry signals (Yahoo 1-minute data, ~1 min delay,
+# combined into 5-minute candles)
+# ------------------------------------------------------------------
+chart:
+  ema_fast: 9
+  ema_slow: 20
+  vwap_includes_premarket: true   # VWAP starts at 4:00 ET. Set false to start at the 9:30 open
+                                  # (compare with the VWAP you see in Webull and pick the same)
+
+signals:
+  timeframe_minutes: 5         # candle size used for signals and the chart
+  account_size: 1000           # paper account, dollars
+  risk_per_trade_pct: 1.0      # max loss per trade = 1% of account ($10)
+  target_r: 2.0                # profit target = 2x the risk (2R)
+  entry_valid_bars: 2          # a pattern's entry stays valid for this many candles, then it expires
+  max_stop_pct: 10             # skip a signal if the stop is more than 10% below entry
+  min_stop_pct: 1.0            # skip if the stop is closer than 1% (normal price noise would hit it)
+  slippage_pct: 0.2            # assumed extra cost on each fill (penny stocks slip)
+  no_signals_first_minutes: 5  # ignore the first minutes after the 9:30 ET open
+  last_entry_time: "15:30"     # no new entries after this time (ET)
+  recent_trigger_minutes: 10   # a trigger stays "Triggered" on the board this long
+  skip_grades: [Avoid]         # no signals on these selection grades
+  max_stocks_watched: 8        # best-scored stocks to watch for signals
+  structure:                   # market structure filter (HH/HL before the pattern). OFF for now:
+    enabled: false             # the Backtest tab keeps comparing it so you can decide later
+    swing_strength: 2          # a swing high/low must beat this many candles on each side
+    allow_break_of_structure: true   # higher low + close above the last swing high also counts as bullish
+  setups:
+    # --- YOUR SETUPS: candlestick pattern at VWAP. Entry = break of the pattern high,
+    #     stop = below the pattern low, target = target_r x risk.
+    vwap_engulfing:            # red candle, then a green candle whose body covers it
+      enabled: true
+      require_volume: true     # green candle volume >= red candle volume
+      vwap_near_pct: 1.0       # pattern low must touch VWAP or come within this % above it
+    vwap_morning_star:         # big red, small "star", green closing above the red body's middle
+      enabled: true
+      big_body_mult: 1.0       # red candle body >= this x the average body of the previous 10 candles
+      star_max_body_pct: 50    # star body <= this % of the red body
+      require_volume: true     # green candle volume >= star volume
+      vwap_near_pct: 1.0
+
+    # --- earlier 1-minute momentum setups (switched off; set enabled: true to compare)
+    bull_flag:                 # strong push up, small pullback on lighter volume, break of pullback
+      enabled: false
+      pole_min_pct: 3.0        # the push up must be at least this many %
+      pole_max_bars: 10
+      pullback_min_bars: 2
+      pullback_max_bars: 8
+      max_retrace_pct: 50      # pullback may give back at most half of the push
+    hod_breakout:              # price coils just under the high of day, then breaks it
+      enabled: false
+      near_high_pct: 2.0
+      volume_mult: 1.5         # last 3 bars' volume vs the 20-bar average
+    vwap_reclaim:              # dips below VWAP, then a candle closes back above it
+      enabled: false
+      lookback_bars: 10
+      min_bars_below: 2
+      volume_mult: 1.2
+  alerts:
+    auto_refresh_seconds: 60
+    sound: true
+
+backtest:
+  data_folder: data/bars       # 1-minute bars are saved here so the backtest grows every day
+  min_day_change_pct: 5        # only test days when the stock was "in play"
+  min_day_volume: 1000000
+  exit_time: "15:55"           # day trades are closed at this time (ET)

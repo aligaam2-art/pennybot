@@ -1,0 +1,51 @@
+# Automatic paper-trading journal.
+# Runs on weekdays during US market hours and commits results to journal/.
+# A GitHub job can last at most 6 hours, so the trading day is covered by two
+# runs back to back; the extra start times cover US daylight-saving changes.
+# Scripts exit straight away on weekends, holidays and when the day is done.
+name: Paper-trading journal
+
+on:
+  schedule:
+    - cron: "5 13 * * 1-5"    # 9:05 ET in summer time (8:05 ET in winter: exits)
+    - cron: "5 14 * * 1-5"    # 9:05 ET in winter time
+    - cron: "35 18 * * 1-5"   # second half of the day
+    - cron: "35 19 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run (until the close), once (one check now) or finalize (settle today)"
+        default: run
+
+permissions:
+  contents: write
+
+concurrency:
+  group: journal
+  cancel-in-progress: false
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-journal.txt
+      - run: pip install -r requirements-journal.txt
+      - name: Commit identity
+        run: |
+          git config user.name "pennybot-journal"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Run journal
+        env:
+          MODE: ${{ inputs.mode || 'run' }}
+        run: |
+          if [ "$MODE" = "run" ]; then
+            python -m pennybot.journal run --max-minutes 335
+          else
+            python -m pennybot.journal "$MODE"
+          fi

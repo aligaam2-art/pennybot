@@ -1,0 +1,6 @@
+yfinance>=0.2.60
+streamlit>=1.40
+pandas
+pyyaml
+tzdata
+plotly
