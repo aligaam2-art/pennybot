@@ -128,24 +128,26 @@ def time_of_day_rvol(tickers: list[str], lookback_days: int) -> dict[str, float]
                            prepost=False, group_by="ticker", progress=False,
                            threads=threads, auto_adjust=False)
 
-    data = download(tickers, threads=True)
+    def volumes(data: pd.DataFrame, symbols: list[str]) -> dict[str, pd.Series]:
+        out = {}
+        for t in symbols:
+            try:
+                vol = data[t]["Volume"].dropna()
+            except KeyError:
+                continue
+            if not vol.empty and vol.index.tz is not None:     # skip empty/naive results
+                out[t] = vol
+        return out
+
+    vols = volumes(download(tickers, threads=True), tickers)
     # Parallel downloads occasionally fail ("database is locked"); retry those one by one.
-    failed = [t for t in tickers if t not in data.columns.get_level_values(0)
-              or data[t]["Volume"].dropna().empty]
+    failed = [t for t in tickers if t not in vols]
     if failed:
-        retry = download(failed, threads=False)
-        for t in failed:
-            if t in retry.columns.get_level_values(0):
-                data = data.drop(columns=t, level=0, errors="ignore").join(retry[[t]], how="outer")
+        vols.update(volumes(download(failed, threads=False), failed))
     today = now_et().date()
     out: dict[str, float] = {}
-    for t in tickers:
-        try:
-            vol = data[t]["Volume"].dropna()
-        except KeyError:
-            continue
-        if vol.empty:
-            continue
+    for t, vol in vols.items():
+        vol = vol.copy()
         vol.index = vol.index.tz_convert(ET)
         days = vol.index.date
         today_vol = vol[days == today]

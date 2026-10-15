@@ -64,8 +64,46 @@ def day_dir(d: date):
 
 def load_trades() -> pd.DataFrame:
     if TRADES.exists():
-        return pd.read_csv(TRADES, dtype={"date": str})
-    return pd.DataFrame(columns=COLUMNS)
+        return pd.read_csv(TRADES, dtype=str, keep_default_na=False)
+    return pd.DataFrame(columns=COLUMNS, dtype=str)
+
+
+def settle(row: pd.Series, day5: pd.DataFrame, cfg: dict, final: bool) -> list | None:
+    """Follow a logged trade from its own entry/stop/target through later candles.
+
+    Returns [status, outcome, exit_time, exit_price, r, pnl] once the stop or target
+    is hit (or at the end-of-day exit / when `final`), else None. Independent of
+    re-detecting the pattern, so later revisions to Yahoo's data can't lose a trade.
+    """
+    sc = cfg["signals"]
+    exit_t = time.fromisoformat(cfg.get("backtest", {}).get("exit_time", "15:55"))
+    slip = sc.get("slippage_pct", 0.2) / 100
+    entry, stop, target = float(row["entry"]), float(row["stop"]), float(row["target"])
+    fill = entry * (1 + slip)
+    trig = time.fromisoformat(row["signal_time_et"])
+    after = day5[day5.index.time > trig]
+    exit_px = exit_ts = how = None
+    for ts, bar in after.iterrows():
+        if bar["low"] <= stop:
+            exit_px, how = min(stop, bar["open"]), "stop"
+        elif bar["high"] >= target:
+            exit_px, how = max(target, bar["open"]), "target"
+        elif ts.time() >= exit_t:
+            exit_px, how = bar["close"], "time"
+        if how:
+            exit_ts = ts
+            break
+    if how is None:
+        if not final or after.empty:
+            return None
+        exit_ts, exit_px, how = after.index[-1], after["close"].iloc[-1], "time"
+    exit_fill = exit_px * (1 - slip)
+    r = round((exit_fill - fill) / (entry - stop), 2)
+    pnl = round(r * sc["account_size"] * sc["risk_per_trade_pct"] / 100, 2)
+    return ["closed", how, exit_ts.strftime("%H:%M"), round(exit_fill, 4), r, pnl]
+
+
+RESULT_COLS = ["status", "outcome", "exit_time_et", "exit_price", "r", "pnl_dollars"]
 
 
 def save_trades(df: pd.DataFrame) -> None:
@@ -183,16 +221,17 @@ class Session:
                 day = day.iloc[:-1]                 # candle still forming
             if len(day) < 3:
                 continue
+            for i in trades.index[(trades["ticker"] == t) & (trades["date"] == self.today.isoformat())
+                                  & (trades["status"] == "open")]:
+                res = settle(trades.loc[i], day, self.cfg, final=False)
+                if res:
+                    trades.loc[i, RESULT_COLS] = [str(x) for x in res]
+                    log(f"{t} closed: {res[1]} {res[4]:+.2f}R")
             day_trades, _, _ = S.run_day(day, t, self.cfg)
             for tr in day_trades:
                 key = (trades["ticker"] == t) & (trades["date"] == self.today.isoformat()) \
                     & (trades["signal_time_et"] == tr.triggered_at.strftime("%H:%M"))
-                if key.any():                       # already logged: update result
-                    if tr.r is not None and (trades.loc[key, "status"] == "open").any():
-                        trades.loc[key, ["status", "outcome", "exit_time_et", "exit_price", "r", "pnl_dollars"]] = [
-                            "closed", tr.outcome, tr.exit_at.strftime("%H:%M"), tr.exit_price, tr.r,
-                            round(tr.r * self.sc["account_size"] * self.sc["risk_per_trade_pct"] / 100, 2)]
-                        log(f"{t} closed: {tr.outcome} {tr.r:+.2f}R")
+                if key.any():                       # already logged
                     continue
                 if t not in self.seen or tr.triggered_at < self.seen[t] - tf:
                     continue                        # happened before we were watching: hindsight
@@ -206,24 +245,23 @@ class Session:
                        "logged_at_et": now.strftime("%H:%M"), "entry": tr.entry, "stop": tr.stop,
                        "target": tr.target, "shares": shares, "risk_dollars": risk_d, "status": "open",
                        "outcome": "", "exit_time_et": "", "exit_price": "", "r": "", "pnl_dollars": ""}
-                if tr.r is not None:
-                    row.update(status="closed", outcome=tr.outcome, exit_time_et=tr.exit_at.strftime("%H:%M"),
-                               exit_price=tr.exit_price, r=tr.r,
-                               pnl_dollars=round(tr.r * self.sc["account_size"] * self.sc["risk_per_trade_pct"] / 100, 2))
-                new_rows.append(row)
+                res = settle(pd.Series(row), day, self.cfg, final=False)
+                if res:
+                    row.update(dict(zip(RESULT_COLS, res)))
+                new_rows.append({k: str(v) for k, v in row.items()})
                 log(f"NEW SIGNAL {t} {row['setup']} entry {tr.entry} stop {tr.stop} target {tr.target}")
         if new_rows:
-            trades = pd.concat([trades, pd.DataFrame(new_rows)], ignore_index=True)
+            trades = pd.concat([trades, pd.DataFrame(new_rows, dtype=str)], ignore_index=True)
         save_trades(trades)
         log(f"checked {len(watch)} watched stocks: {', '.join(watch) or '-'}")
 
 
 # ---------------------------------------------------------------- end of day
 
-def finalize(cfg: dict, d: date | None = None) -> None:
+def finalize(cfg: dict, d: date | None = None, force: bool = False) -> None:
     d = d or now_et().date()
     folder = day_dir(d)
-    if (folder / "finalized").exists():
+    if (folder / "finalized").exists() and not force:
         log(f"{d} already finalized")
         return
     sc = cfg["signals"]
@@ -248,11 +286,9 @@ def finalize(cfg: dict, d: date | None = None) -> None:
         if t not in bars:
             continue
         day = B.resample(bars[t][bars[t].index.date == d], sc.get("timeframe_minutes", 5))
-        for tr in S.run_day(day, t, cfg)[0]:
-            if tr.triggered_at.strftime("%H:%M") == trades.at[i, "signal_time_et"] and tr.r is not None:
-                trades.loc[i, ["status", "outcome", "exit_time_et", "exit_price", "r", "pnl_dollars"]] = [
-                    "closed", tr.outcome, tr.exit_at.strftime("%H:%M"), tr.exit_price, tr.r,
-                    round(tr.r * sc["account_size"] * sc["risk_per_trade_pct"] / 100, 2)]
+        res = settle(trades.loc[i], day, cfg, final=True)
+        if res:
+            trades.loc[i, RESULT_COLS] = [str(x) for x in res]
     save_trades(trades)
 
     day_trades = trades[mask & (trades["status"] == "closed")]
@@ -340,6 +376,7 @@ def main() -> None:
     sub.add_parser("once")
     f = sub.add_parser("finalize")
     f.add_argument("--date", type=date.fromisoformat)
+    f.add_argument("--force", action="store_true", help="redo a day that is already finalized")
     a = p.parse_args()
     cfg = load_config()
     if a.cmd == "run":
@@ -348,7 +385,7 @@ def main() -> None:
         Session(cfg).check()
         git_commit(f"journal: manual check {now_et():%Y-%m-%d %H:%M}")
     else:
-        finalize(cfg, a.date)
+        finalize(cfg, a.date, a.force)
         git_commit(f"journal: {(a.date or now_et().date())} final")
 
 

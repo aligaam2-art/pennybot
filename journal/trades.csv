@@ -1,2 +1,2 @@
 date,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_at_et,entry,stop,target,shares,risk_dollars,status,outcome,exit_time_et,exit_price,r,pnl_dollars
-2026-10-14,GLND,C,32,⚪ none,Greenland Energy CEO says ‘The world needs oil’,VWAP + bullish engulfing,10:50,10:55,3.98,3.79,4.36,52,9.88,open,,,,,
+2026-10-14,GLND,C,32,⚪ none,Greenland Energy CEO says ‘The world needs oil’,VWAP + bullish engulfing,10:50,10:55,3.98,3.79,4.36,52,9.88,closed,stop,11:05,3.7824,-1.08,-10.8
