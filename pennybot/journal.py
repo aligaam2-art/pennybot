@@ -209,6 +209,9 @@ class Session:
         open_today = trades[(trades["date"] == self.today.isoformat()) & (trades["status"] == "open")]
         tickers = sorted(set(watch) | set(open_today["ticker"]))
         bars = B.download_bars(tickers, days=1)
+        missing = [t for t in tickers if t not in bars]
+        if missing:
+            log(f"WARNING Yahoo returned no price data for {len(missing)}/{len(tickers)}: {', '.join(missing)}")
         info = ranked.set_index("ticker") if len(ranked) else pd.DataFrame()
         new_rows = []
         for t in tickers:
