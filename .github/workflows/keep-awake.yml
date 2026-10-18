@@ -1,0 +1,19 @@
+# Visits the phone dashboard every 6 hours so free Streamlit hosting doesn't put it to sleep.
+name: Keep dashboard awake
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && python -m playwright install --with-deps chromium
+      - run: python tools/keep_awake.py https://pennybot-ali.streamlit.app
