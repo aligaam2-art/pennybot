@@ -1,6 +1,7 @@
 """Pennybot dashboard.  Start it with start_dashboard.bat (or: streamlit run dashboard.py)."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import altair as alt
@@ -31,7 +32,13 @@ GRADE_BADGE = {"A": ":green-badge[A]", "B": ":blue-badge[B]", "C": ":orange-badg
 def get_raw(max_price: float, min_change: float, lookback: int):
     c = {**cfg, "screener": {**defaults, "max_price": max_price,
                              "min_change_pct": min_change, "rvol_lookback_days": lookback}}
-    return load_candidates(c)
+    for attempt in range(3):                   # Yahoo sometimes turns cloud servers away briefly
+        try:
+            return load_candidates(c)
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(5 * (attempt + 1))
 
 
 @st.cache_data(ttl=600, show_spinner="Checking news and SEC filings...")
@@ -130,11 +137,101 @@ st.caption(f"{local_now[:-6]} · Premarket scan window today: {times['premarket_
            f"{times['premarket_scan_to']:%H:%M} your time (45–60 min before the open). "
            "US daylight-saving changes are handled automatically.")
 
+# ------------------------------------------------------------------ journal (own data, no Yahoo needed)
+def render_journal():
+    st.subheader("Automatic paper-trading journal")
+    st.caption("Runs by itself in the cloud (GitHub) every weekday during US market hours. Every 5 minutes it "
+               "runs this dashboard's screener and signals and logs each signal it sees live as a paper trade - "
+               "no hindsight. Results update about every 30 minutes.")
+    jdir = Path(output.ROOT / "journal")
+    trades_path = jdir / "trades.csv"
+    jt = pd.read_csv(trades_path, dtype={"date": str}) if trades_path.exists() else pd.DataFrame()
+    if jt.empty:
+        st.info("No paper trades logged yet. The journal starts on the next US trading day "
+                f"(from {times['market_opens']:%H:%M} your time) and fills in as signals appear.")
+    else:
+        closed = jt[jt["status"] == "closed"].copy()
+        closed["r"] = pd.to_numeric(closed["r"])
+        closed["pnl_dollars"] = pd.to_numeric(closed["pnl_dollars"])
+        k = st.columns(5)
+        k[0].metric("Paper trades", len(closed), help=f"{jt['date'].nunique()} trading days, "
+                    f"{(jt['status'] == 'open').sum()} still open")
+        k[1].metric("Win rate", f"{(closed['r'] > 0).mean() * 100:.0f}%" if len(closed) else "-")
+        k[2].metric("Average per trade", f"{closed['r'].mean():+.2f}R" if len(closed) else "-")
+        k[3].metric("Total", f"{closed['r'].sum():+.1f}R")
+        k[4].metric("Paper P&L", f"${closed['pnl_dollars'].sum():+,.0f}")
+
+        if len(closed) > 1:
+            curve = closed.reset_index(drop=True)
+            curve["trade"] = curve.index + 1
+            curve["equity"] = sc["account_size"] + curve["pnl_dollars"].cumsum()
+            st.altair_chart(alt.Chart(curve).mark_line(point=True).encode(
+                x=alt.X("trade:Q", title="paper trade #"),
+                y=alt.Y("equity:Q", title="paper account $", scale=alt.Scale(zero=False)),
+                tooltip=["date", "ticker", "setup", "outcome", "r", "equity"]).properties(height=220),
+                width="stretch")
+            c1, c2 = st.columns(2)
+            for col, by, title in ((c1, "setup", "By setup"), (c2, "grade", "By selection grade")):
+                g = closed.groupby(by)["r"].agg(trades="count", win_rate=lambda r: (r > 0).mean() * 100,
+                                                 avg_r="mean").reset_index()
+                col.markdown(f"**{title}**")
+                col.dataframe(g, hide_index=True, width="stretch", column_config={
+                    "win_rate": st.column_config.NumberColumn("Win rate", format="%.0f%%"),
+                    "avg_r": st.column_config.NumberColumn("Avg R", format="%+.2f")})
+
+        def local_time(row, col):
+            if not isinstance(row[col], str) or not row[col]:
+                return ""
+            dt_et = pd.Timestamp(f"{row['date']} {row[col]}").tz_localize("America/New_York")
+            return fmt_local(dt_et, TZ)[-5:]
+
+        view = jt.iloc[::-1].copy()
+        view["signal (yours)"] = view.apply(lambda r: local_time(r, "signal_time_et"), axis=1)
+        view["exit (yours)"] = view.apply(lambda r: local_time(r, "exit_time_et"), axis=1)
+        st.dataframe(view[["date", "ticker", "grade", "setup", "signal (yours)", "entry", "stop", "target",
+                           "shares", "status", "outcome", "exit (yours)", "exit_price", "r", "pnl_dollars",
+                           "headline"]], hide_index=True, width="stretch")
+
+        pick = st.selectbox("Chart a logged trade", range(len(view)), format_func=lambda i: (
+            f"{view.iloc[i]['date']} · {view.iloc[i]['ticker']} · {view.iloc[i]['setup']} · "
+            f"{view.iloc[i]['outcome'] or 'open'}"))
+        row = view.iloc[pick]
+        d = pd.Timestamp(row["date"]).date()
+        stored = B.load_stored(row["ticker"], cfg)
+        day_bars = stored[stored.index.date == d] if len(stored) else stored
+        if day_bars is None or day_bars.empty:
+            day_bars = get_bars((row["ticker"],), 8).get(row["ticker"], pd.DataFrame())
+            day_bars = day_bars[day_bars.index.date == d] if len(day_bars) else day_bars
+        if len(day_bars):
+            day5 = B.resample(day_bars, tf)
+            trs, _, spotted_j = S.run_day(day5, row["ticker"], cfg)
+            tr = [t for t in trs if t.triggered_at.strftime("%H:%M") == row["signal_time_et"]]
+            sig_j = S.LiveSignal(row["ticker"], "", row["setup"], row["entry"], row["stop"], row["target"])
+            st.plotly_chart(intraday_chart(B.add_indicators(day5, cfg), None, sig_j, tr, TZ, row["ticker"],
+                                           spotted_j, tf), width="stretch")
+        else:
+            st.caption("Price data for this day isn't available any more.")
+
+    summ_path = jdir / "summary.csv"
+    if summ_path.exists():
+        st.markdown("**Day by day**")
+        st.dataframe(pd.read_csv(summ_path).iloc[::-1], hide_index=True, width="stretch")
+
 # ------------------------------------------------------------------ data
+tf = sc.get("timeframe_minutes", 5)
 try:
     raw = get_raw(s["max_price"], s["min_change_pct"], defaults.get("rvol_lookback_days", 10))
 except Exception as e:  # network / Yahoo problems
-    st.error(f"Could not download data from Yahoo Finance: {e}")
+    st.warning("**Yahoo Finance isn't answering right now**, so live prices, scores and signals can't load. "
+               "This happens now and then with free data on cloud servers and usually clears within minutes. "
+               "Your paper-trading journal below still works, and the cloud journal keeps running on its own.",
+               icon="⏳")
+    if st.button("🔄 Try Yahoo again"):
+        get_raw.clear()
+        st.rerun()
+    with st.expander("Technical details"):
+        st.code(repr(e))
+    render_journal()
     st.stop()
 
 result = apply_filters(raw, s, "intraday")
@@ -281,83 +378,7 @@ with tab_signals:
 
 # ------------------------------------------------------------------ tab: journal
 with tab_journal:
-    st.subheader("Automatic paper-trading journal")
-    st.caption("Runs by itself in the cloud (GitHub) every weekday during US market hours. Every 5 minutes it "
-               "runs this dashboard's screener and signals and logs each signal it sees live as a paper trade - "
-               "no hindsight. Results update about every 30 minutes.")
-    jdir = Path(output.ROOT / "journal")
-    trades_path = jdir / "trades.csv"
-    jt = pd.read_csv(trades_path, dtype={"date": str}) if trades_path.exists() else pd.DataFrame()
-    if jt.empty:
-        st.info("No paper trades logged yet. The journal starts on the next US trading day "
-                f"(from {times['market_opens']:%H:%M} your time) and fills in as signals appear.")
-    else:
-        closed = jt[jt["status"] == "closed"].copy()
-        closed["r"] = pd.to_numeric(closed["r"])
-        closed["pnl_dollars"] = pd.to_numeric(closed["pnl_dollars"])
-        k = st.columns(5)
-        k[0].metric("Paper trades", len(closed), help=f"{jt['date'].nunique()} trading days, "
-                    f"{(jt['status'] == 'open').sum()} still open")
-        k[1].metric("Win rate", f"{(closed['r'] > 0).mean() * 100:.0f}%" if len(closed) else "-")
-        k[2].metric("Average per trade", f"{closed['r'].mean():+.2f}R" if len(closed) else "-")
-        k[3].metric("Total", f"{closed['r'].sum():+.1f}R")
-        k[4].metric("Paper P&L", f"${closed['pnl_dollars'].sum():+,.0f}")
-
-        if len(closed) > 1:
-            curve = closed.reset_index(drop=True)
-            curve["trade"] = curve.index + 1
-            curve["equity"] = sc["account_size"] + curve["pnl_dollars"].cumsum()
-            st.altair_chart(alt.Chart(curve).mark_line(point=True).encode(
-                x=alt.X("trade:Q", title="paper trade #"),
-                y=alt.Y("equity:Q", title="paper account $", scale=alt.Scale(zero=False)),
-                tooltip=["date", "ticker", "setup", "outcome", "r", "equity"]).properties(height=220),
-                width="stretch")
-            c1, c2 = st.columns(2)
-            for col, by, title in ((c1, "setup", "By setup"), (c2, "grade", "By selection grade")):
-                g = closed.groupby(by)["r"].agg(trades="count", win_rate=lambda r: (r > 0).mean() * 100,
-                                                 avg_r="mean").reset_index()
-                col.markdown(f"**{title}**")
-                col.dataframe(g, hide_index=True, width="stretch", column_config={
-                    "win_rate": st.column_config.NumberColumn("Win rate", format="%.0f%%"),
-                    "avg_r": st.column_config.NumberColumn("Avg R", format="%+.2f")})
-
-        def local_time(row, col):
-            if not isinstance(row[col], str) or not row[col]:
-                return ""
-            dt_et = pd.Timestamp(f"{row['date']} {row[col]}").tz_localize("America/New_York")
-            return fmt_local(dt_et, TZ)[-5:]
-
-        view = jt.iloc[::-1].copy()
-        view["signal (yours)"] = view.apply(lambda r: local_time(r, "signal_time_et"), axis=1)
-        view["exit (yours)"] = view.apply(lambda r: local_time(r, "exit_time_et"), axis=1)
-        st.dataframe(view[["date", "ticker", "grade", "setup", "signal (yours)", "entry", "stop", "target",
-                           "shares", "status", "outcome", "exit (yours)", "exit_price", "r", "pnl_dollars",
-                           "headline"]], hide_index=True, width="stretch")
-
-        pick = st.selectbox("Chart a logged trade", range(len(view)), format_func=lambda i: (
-            f"{view.iloc[i]['date']} · {view.iloc[i]['ticker']} · {view.iloc[i]['setup']} · "
-            f"{view.iloc[i]['outcome'] or 'open'}"))
-        row = view.iloc[pick]
-        d = pd.Timestamp(row["date"]).date()
-        stored = B.load_stored(row["ticker"], cfg)
-        day_bars = stored[stored.index.date == d] if len(stored) else stored
-        if day_bars is None or day_bars.empty:
-            day_bars = get_bars((row["ticker"],), 8).get(row["ticker"], pd.DataFrame())
-            day_bars = day_bars[day_bars.index.date == d] if len(day_bars) else day_bars
-        if len(day_bars):
-            day5 = B.resample(day_bars, tf)
-            trs, _, spotted_j = S.run_day(day5, row["ticker"], cfg)
-            tr = [t for t in trs if t.triggered_at.strftime("%H:%M") == row["signal_time_et"]]
-            sig_j = S.LiveSignal(row["ticker"], "", row["setup"], row["entry"], row["stop"], row["target"])
-            st.plotly_chart(intraday_chart(B.add_indicators(day5, cfg), None, sig_j, tr, TZ, row["ticker"],
-                                           spotted_j, tf), width="stretch")
-        else:
-            st.caption("Price data for this day isn't available any more.")
-
-    summ_path = jdir / "summary.csv"
-    if summ_path.exists():
-        st.markdown("**Day by day**")
-        st.dataframe(pd.read_csv(summ_path).iloc[::-1], hide_index=True, width="stretch")
+    render_journal()
 
 # ------------------------------------------------------------------ tab: backtest
 with tab_backtest:
