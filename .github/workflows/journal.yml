@@ -43,6 +43,7 @@ jobs:
       - name: Run journal
         env:
           MODE: ${{ inputs.mode || 'run' }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           if [ "$MODE" = "run" ]; then
             python -m pennybot.journal run --max-minutes 335

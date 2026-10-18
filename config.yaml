@@ -114,7 +114,7 @@ signals:
   last_entry_time: "15:30"     # no new entries after this time (ET)
   recent_trigger_minutes: 10   # a trigger stays "Triggered" on the board this long
   skip_grades: [Avoid]         # no signals on these selection grades
-  max_stocks_watched: 8        # best-scored stocks to watch for signals
+  max_stocks_watched: 25       # watch every screener stock not graded Avoid (up to 25)
   structure:                   # market structure filter (HH/HL before the pattern). OFF for now:
     enabled: false             # the Backtest tab keeps comparing it so you can decide later
     swing_strength: 2          # a swing high/low must beat this many candles on each side
@@ -159,3 +159,14 @@ backtest:
   min_day_change_pct: 5        # only test days when the stock was "in play"
   min_day_volume: 1000000
   exit_time: "15:55"           # day trades are closed at this time (ET)
+
+# ------------------------------------------------------------------
+# Phone alerts from the cloud journal (free ntfy app, no account).
+# The private channel name is stored as a GitHub secret (NTFY_TOPIC),
+# not here, because this file is public.
+# ------------------------------------------------------------------
+alerts:
+  phone: true
+  ntfy_server: https://ntfy.sh
+  daily_start_message: true    # "Pennybot is watching N stocks" once per trading day
+  daily_summary: true          # results after the close

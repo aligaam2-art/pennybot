@@ -34,6 +34,7 @@ from datetime import date, datetime, time, timedelta
 import pandas as pd
 
 from . import bars as B
+from . import notify
 from . import signals as S
 from .catalyst import check_catalysts
 from .clock import ET, REGULAR_CLOSE, REGULAR_OPEN, now_et
@@ -230,6 +231,7 @@ class Session:
                 if res:
                     trades.loc[i, RESULT_COLS] = [str(x) for x in res]
                     log(f"{t} closed: {res[1]} {res[4]:+.2f}R")
+                    self.alert_closed(trades.loc[i])
             day_trades, _, _ = S.run_day(day, t, self.cfg)
             for tr in day_trades:
                 key = (trades["ticker"] == t) & (trades["date"] == self.today.isoformat()) \
@@ -253,10 +255,39 @@ class Session:
                     row.update(dict(zip(RESULT_COLS, res)))
                 new_rows.append({k: str(v) for k, v in row.items()})
                 log(f"NEW SIGNAL {t} {row['setup']} entry {tr.entry} stop {tr.stop} target {tr.target}")
+                self.alert_signal(row)
+                if res:
+                    self.alert_closed(pd.Series({k: str(v) for k, v in row.items()}))
         if new_rows:
             trades = pd.concat([trades, pd.DataFrame(new_rows, dtype=str)], ignore_index=True)
         save_trades(trades)
         log(f"checked {len(watch)} watched stocks: {', '.join(watch) or '-'}")
+        started = day_dir(self.today) / "start_alert_sent"
+        if self.cfg.get("alerts", {}).get("daily_start_message", True) and not started.exists() and watch:
+            if notify.send(self.cfg, "Pennybot is watching the market",
+                           f"Watching {len(watch)} stocks: {', '.join(watch)}.\n"
+                           "You'll get an alert here when a signal triggers.", tags="eyes", priority="low"):
+                started.write_text(now.isoformat())
+
+    def alert_signal(self, row: dict) -> None:
+        when = notify.local_hhmm(row["date"], row["signal_time_et"], self.cfg)
+        notify.send(self.cfg, f"SIGNAL {row['ticker']} ({row['grade'] or '-'})",
+                    f"{row['setup']} at {when} your time\n"
+                    f"Entry ${float(row['entry']):.4g} · Stop ${float(row['stop']):.4g} · "
+                    f"Target ${float(row['target']):.4g}\n"
+                    f"{row['shares']} shares, risk ${float(row['risk_dollars']):.2f} (paper)\n"
+                    f"{row['headline'] or ''}".strip(),
+                    tags="green_circle,chart_with_upwards_trend", priority="high")
+
+    def alert_closed(self, row: pd.Series) -> None:
+        r = float(row["r"])
+        when = notify.local_hhmm(row["date"], row["exit_time_et"], self.cfg)
+        word = {"target": "TARGET HIT", "stop": "STOPPED OUT", "time": "CLOSED AT END OF DAY"}.get(row["outcome"],
+                                                                                                row["outcome"])
+        notify.send(self.cfg, f"{word} {row['ticker']} {r:+.2f}R",
+                    f"{row['setup']}: exit ${float(row['exit_price']):.4g} at {when} your time\n"
+                    f"Paper result: {r:+.2f}R = ${float(row['pnl_dollars']):+.2f}",
+                    tags="white_check_mark" if r > 0 else "x")
 
 
 # ---------------------------------------------------------------- end of day
@@ -312,6 +343,9 @@ def finalize(cfg: dict, d: date | None = None, force: bool = False) -> None:
     (folder / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     (folder / "finalized").write_text(now_et().isoformat())
     log("finalized: " + lines[2])
+    if cfg.get("alerts", {}).get("daily_summary", True) and not force:
+        notify.send(cfg, f"Pennybot day summary {d:%a %d %b}",
+                    "\n".join([lines[2]] + lines[5:]) or lines[2], tags="memo", priority="low")
 
 
 # ---------------------------------------------------------------- main loop
