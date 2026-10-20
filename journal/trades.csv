@@ -1,3 +1,4 @@
 date,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_at_et,entry,stop,target,shares,risk_dollars,status,outcome,exit_time_et,exit_price,r,pnl_dollars
 2026-10-14,GLND,C,32,⚪ none,Greenland Energy CEO says ‘The world needs oil’,VWAP + bullish engulfing,10:50,10:55,3.98,3.79,4.36,52,9.88,closed,stop,11:05,3.7824,-1.08,-10.8
 2026-10-19,AAME,B,67,🟢 strong,Atlantic American: Q4 Earnings Snapshot,VWAP + bullish engulfing,13:30,13:39,1.47,1.41,1.59,166,9.96,closed,stop,14:25,1.4072,-1.1,-11.0
+2026-10-20,HUIZ,B,52,⚪ none,Huize Holding Limited to Present at the 20th Annual LD Micro Main Event,VWAP + bullish engulfing,10:40,10:49,2.56,2.35,2.98,47,9.87,closed,stop,10:45,2.3453,-1.05,-10.5
