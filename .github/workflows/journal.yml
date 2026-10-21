@@ -14,11 +14,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "run (until the close), once (one check now) or finalize (settle today)"
+        description: "run (until the close), once (one check now), finalize (settle today) or test-alert"
         default: run
 
 permissions:
   contents: write
+  issues: write      # alerts are posted to a daily issue, which GitHub emails to you
 
 concurrency:
   group: journal
@@ -44,6 +45,7 @@ jobs:
         env:
           MODE: ${{ inputs.mode || 'run' }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "$MODE" = "run" ]; then
             python -m pennybot.journal run --max-minutes 335

@@ -168,5 +168,6 @@ backtest:
 alerts:
   phone: true
   ntfy_server: https://ntfy.sh
+  email: true                  # also email each alert (via a daily GitHub issue - GitHub emails you each comment)
   daily_start_message: true    # "Pennybot is watching N stocks" once per trading day
   daily_summary: true          # results after the close

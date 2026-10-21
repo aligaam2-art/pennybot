@@ -411,6 +411,7 @@ def main() -> None:
     r = sub.add_parser("run")
     r.add_argument("--max-minutes", type=int, default=340)
     sub.add_parser("once")
+    sub.add_parser("test-alert")
     f = sub.add_parser("finalize")
     f.add_argument("--date", type=date.fromisoformat)
     f.add_argument("--force", action="store_true", help="redo a day that is already finalized")
@@ -418,6 +419,12 @@ def main() -> None:
     cfg = load_config()
     if a.cmd == "run":
         run(cfg, a.max_minutes)
+    elif a.cmd == "test-alert":
+        ok = notify.send(cfg, "Pennybot test alert",
+                         "If you can read this, alerts are working.\nDuring US market hours (16:30-23:00 "
+                         "your time) you'll get: the stocks being watched, each signal with entry/stop/target, "
+                         "each result, and a day summary.", tags="bell", priority="high")
+        log(f"test alert sent: {ok}")
     elif a.cmd == "once":
         Session(cfg).check()
         git_commit(f"journal: manual check {now_et():%Y-%m-%d %H:%M}")
