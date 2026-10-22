@@ -4,3 +4,4 @@ date,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_at_et,entr
 2026-10-20,HUIZ,B,52,⚪ none,Huize Holding Limited to Present at the 20th Annual LD Micro Main Event,VWAP + bullish engulfing,10:40,10:49,2.56,2.35,2.98,47,9.87,closed,stop,10:45,2.3453,-1.05,-10.5
 2026-10-21,AHT,C,32,⚪ none,"ASHFORD HOSPITALITY TRUST ANNOUNCES $17 MILLION ADVISORY FEE WAIVER, SHARE PURCHASE COMMITMENT FROM ASHFORD INC. AND TERMINATION OF ATM PROGRAM",VWAP + morning star,12:35,12:43,2.5,2.37,2.76,76,9.88,closed,time,15:55,2.555,0.38,3.8
 2026-10-22,STAK,B,52,⚪ none,STAK Inc. Announces Financial Results for Fiscal Year 2026,VWAP + bullish engulfing,10:00,10:07,1.56,1.43,1.82,76,9.88,open,,,,,
+2026-10-22,BKYI,C,47,🟢 strong,"BIO-key Secures Another Middle East Government Contract for its Passwordless, Biometric, Identity and Access Management Solutions",VWAP + bullish engulfing,10:15,10:22,2.81,2.55,3.33,38,9.88,open,,,,,
