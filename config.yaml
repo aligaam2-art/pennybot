@@ -107,6 +107,7 @@ signals:
   risk_per_trade_pct: 1.0      # max loss per trade = 1% of account ($10)
   target_r: 2.0                # profit target = 2x the risk (2R)
   entry_valid_bars: 2          # a pattern's entry stays valid for this many candles, then it expires
+  max_chase_r: 0.3             # journal: skip a trade if price already ran >0.3R past entry when noticed
   max_stop_pct: 10             # skip a signal if the stop is more than 10% below entry
   min_stop_pct: 1.0            # skip if the stop is closer than 1% (normal price noise would hit it)
   slippage_pct: 0.2            # assumed extra cost on each fill (penny stocks slip)
@@ -132,6 +133,16 @@ signals:
       star_max_body_pct: 50    # star body <= this % of the red body
       require_volume: true     # green candle volume >= star volume
       vwap_near_pct: 1.0
+
+    # --- OPENING RANGE BREAKOUT (used by the "orb" strategy below; off for the others)
+    orb:
+      enabled: false
+      range_minutes: 15        # opening range = first 15 minutes (9:30-9:45 New York)
+      last_entry_time: "11:00" # no new ORB entries after this (New York time)
+      require_above_vwap: true
+      min_range_pct: 2.0       # skip ranges tighter than this (noise)
+      stop: range_low          # range_low or range_mid
+      max_stop_pct: 15         # skip if the stop is more than 15% below entry
 
     # --- earlier 1-minute momentum setups (switched off; set enabled: true to compare)
     bull_flag:                 # strong push up, small pullback on lighter volume, break of pullback
@@ -188,3 +199,10 @@ strategies:
   - id: morning
     name: Morning only
     changes: {last_entry_time: "11:30"}
+  - id: orb
+    name: Opening range breakout
+    changes:
+      setups:
+        vwap_engulfing: {enabled: false}
+        vwap_morning_star: {enabled: false}
+        orb: {enabled: true}

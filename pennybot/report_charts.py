@@ -15,7 +15,7 @@ from . import bars as B  # noqa: E402
 from . import signals as S  # noqa: E402
 
 UP, DOWN = "#26a69a", "#ef5350"
-LABEL = {"vwap_engulfing": "E", "vwap_morning_star": "MS"}
+LABEL = {"vwap_engulfing": "E", "vwap_morning_star": "MS", "orb": "ORB"}
 
 
 def trade_chart(day_1m: pd.DataFrame, ticker: str, trade_time: str, cfg: dict, path, display_tz: str) -> dict:

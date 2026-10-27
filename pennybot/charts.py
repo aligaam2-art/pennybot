@@ -13,7 +13,7 @@ from .signals import SETUP_NAMES, LiveSignal, Trade
 UP, DOWN = "#26a69a", "#ef5350"
 
 
-PATTERN_LABEL = {"vwap_engulfing": "E", "vwap_morning_star": "MS"}
+PATTERN_LABEL = {"vwap_engulfing": "E", "vwap_morning_star": "MS", "orb": "ORB"}
 
 
 def intraday_chart(df: pd.DataFrame, levels: Levels | None, signal: LiveSignal | None,

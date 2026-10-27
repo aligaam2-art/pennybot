@@ -26,6 +26,7 @@ from . import structure as M
 from .clock import now_et
 
 SETUP_NAMES = {"vwap_engulfing": "VWAP + bullish engulfing", "vwap_morning_star": "VWAP + morning star",
+               "orb": "Opening range breakout",
                "bull_flag": "Bull flag", "hod_breakout": "High-of-day breakout",
                "vwap_reclaim": "VWAP reclaim"}
 PATTERNS = {"vwap_engulfing": (P.bullish_engulfing, 2), "vwap_morning_star": (P.morning_star, 3)}
@@ -81,6 +82,40 @@ def _finish(kind: str, entry: float, stop: float, note: str, sc: dict) -> Setup 
     return Setup(kind, round(entry, 4), round(stop, 4), round(target, 4), note)
 
 
+def _orb_setup(hist: pd.DataFrame, ob: dict, sc: dict, tick: float) -> Setup | None:
+    """Opening range = high/low of the first `range_minutes` after 9:30 ET.
+
+    A setup exists while the range is complete, price is still at or below the range
+    high, above VWAP (if required), before `last_entry_time`, and the range has not
+    been broken yet today (only the first breakout counts).
+    """
+    last_ts = hist.index[-1]
+    open_ts = pd.Timestamp.combine(last_ts.date(), time(9, 30)).tz_localize(last_ts.tz)
+    range_end = open_ts + pd.Timedelta(minutes=ob.get("range_minutes", 15))
+    if last_ts + (hist.index[-1] - hist.index[-2]) <= range_end:
+        return None                                 # opening range not finished yet
+    if last_ts.time() >= _parse_time(ob.get("last_entry_time", "11:00")):
+        return None
+    rng = hist[(hist.index >= open_ts) & (hist.index < range_end)]
+    after = hist[hist.index >= range_end]
+    if rng.empty:
+        return None
+    hi, lo = rng["high"].max(), rng["low"].min()
+    if (after["high"] > hi).any():
+        return None                                 # already broke out earlier: first breakout only
+    size = (hi - lo) / hi * 100
+    if size < ob.get("min_range_pct", 2.0):
+        return None                                 # range too tight to mean anything
+    last = hist.iloc[-1]
+    if ob.get("require_above_vwap", True) and last["close"] <= last["vwap"]:
+        return None
+    stop = lo - tick if ob.get("stop", "range_low") == "range_low" else (hi + lo) / 2 - tick
+    sc2 = {**sc, "max_stop_pct": ob.get("max_stop_pct", sc["max_stop_pct"])}
+    return _finish("orb", hi + tick, stop,
+                   f"{ob.get('range_minutes', 15)}-min opening range ${lo:.4g}-${hi:.4g} ({size:.0f}%), "
+                   "above VWAP", sc2)
+
+
 def find_setups(hist: pd.DataFrame, sc: dict) -> list[Setup]:
     """Setups visible after the last bar in `hist` (finished bars, indicators added)."""
     if len(hist) < 3:
@@ -89,6 +124,13 @@ def find_setups(hist: pd.DataFrame, sc: dict) -> list[Setup]:
     tick = _tick(last["close"])
     st = sc["setups"]
     out: list[Setup] = []
+
+    # --- opening range breakout: first break above the high of the first N minutes
+    ob = st.get("orb", {})
+    if ob.get("enabled", False):
+        s_orb = _orb_setup(hist, ob, sc, tick)
+        if s_orb:
+            out.append(s_orb)
 
     # --- step 1: market structure, step 2: candlestick pattern at VWAP (your setups)
     ms = sc.get("structure", {})

@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 
 from pennybot import bars as B
 from pennybot import output
+from pennybot import journal as J
 from pennybot import signals as S
 from pennybot.catalyst import TAG_ICON, check_catalysts
 from pennybot.charts import intraday_chart
@@ -113,6 +114,10 @@ with st.sidebar:
     refresh_s = alert_cfg.get("auto_refresh_seconds", 60)
     auto_refresh = st.toggle(f"Auto-refresh signals every {refresh_s}s", True)
     sound_on = st.toggle("Beep when a signal triggers", alert_cfg.get("sound", True))
+    _strats = J.strategies(cfg)
+    live_name = st.selectbox("Live signals for strategy", [n for _, n, _ in _strats],
+                             help="Same strategies the cloud journal paper-trades side by side")
+    live_cfg = next(c for _, n, c in _strats if n == live_name)
     sc = cfg["signals"]
     st.caption(f"Paper account \\${sc['account_size']:,} · risk {sc['risk_per_trade_pct']:g}% "
                f"(\\${sc['account_size'] * sc['risk_per_trade_pct'] / 100:,.0f}) per trade · "
@@ -165,12 +170,15 @@ def render_journal():
             st.markdown("#### Strategies side by side")
             same = closed[closed["date"] >= start] if start else closed
             st.caption(f"Same stocks, same moments, from {start or 'the start'} (when side-by-side testing began). "
-                       "Judge only after 30+ trades per strategy; before that, differences are mostly luck.")
+                       "Fills are realistic: the price when the bot noticed; 'Missed' = price had already run too "
+                       "far to buy. Judge only after 30+ trades per strategy; before that it's mostly luck.")
             rows = []
             for sid, name in names.items():
                 r = same.loc[same["strategy"] == sid, "r"]
                 p = same.loc[same["strategy"] == sid, "pnl_dollars"]
-                rows.append({"Strategy": name, "Trades": len(r),
+                missed = ((jt["strategy"] == sid) & (jt["status"] == "missed")
+                          & (jt["date"] >= start if start else True)).sum()
+                rows.append({"Strategy": name, "Trades": len(r), "Missed": int(missed),
                              "Win rate": (r > 0).mean() * 100 if len(r) else None,
                              "Avg per trade (R)": r.mean() if len(r) else None,
                              "Total (R)": r.sum(), "Paper P&L ($)": p.sum()})
@@ -242,7 +250,8 @@ def render_journal():
             day_bars = day_bars[day_bars.index.date == d] if len(day_bars) else day_bars
         if len(day_bars):
             day5 = B.resample(day_bars, tf)
-            trs, _, spotted_j = S.run_day(day5, row["ticker"], cfg)   # markers only; levels come from the log
+            scfg = next((c for i, _, c in J.strategies(cfg) if i == row.get("strategy")), cfg)
+            trs, _, spotted_j = S.run_day(day5, row["ticker"], scfg)   # markers only; levels come from the log
             tr = [t for t in trs if t.triggered_at.strftime("%H:%M") == row["signal_time_et"]]
             sig_j = S.LiveSignal(row["ticker"], "", row["setup"], row["entry"], row["stop"], row["target"])
             st.plotly_chart(intraday_chart(B.add_indicators(day5, cfg), None, sig_j, tr, TZ, row["ticker"],
@@ -332,7 +341,8 @@ watch = watch_df["ticker"].tolist()
 
 
 tf = sc.get("timeframe_minutes", 5)
-use_structure = sc.get("structure", {}).get("enabled", False)
+live_sc = live_cfg["signals"]
+use_structure = live_sc.get("structure", {}).get("enabled", False)
 
 
 @st.fragment(run_every=f"{refresh_s}s" if auto_refresh else None)
@@ -350,7 +360,7 @@ def signal_board():
         last_day = max(days)
         prior = [d for d in sorted(days) if d < last_day]
         prev = B.regular_close(days[prior[-1]]) if prior else None
-        sig, ind, lv, trades, spotted = S.live_signal(t, days[last_day], prev, cfg)
+        sig, ind, lv, trades, spotted = S.live_signal(t, days[last_day], prev, live_cfg)
         details[t] = (sig, ind, lv, trades, last_day, spotted)
         rows.append({"Ticker": t, "Grade": grades.get(t, ""), "Status": sig.status,
                      "Structure": sig.structure, "Setup": sig.setup,
@@ -359,11 +369,17 @@ def signal_board():
                      "Since": fmt_local(sig.time, TZ)[-5:] if sig.time is not None else "",
                      "Trend": sig.trend})
 
-    on = [S.SETUP_NAMES[k] for k, v in sc["setups"].items() if v.get("enabled")]
+    on = [S.SETUP_NAMES[k] for k, v in live_sc["setups"].items() if v.get("enabled")]
     step1 = ("1) structure bullish (HH+HL or break of structure) → 2) "
              if use_structure else "")
-    st.caption(f"Rules: {step1}pattern at VWAP ({', '.join(on)}) → entry on break of the pattern high · "
-               f"stop below the pattern low · target {sc['target_r']:g}R · {tf}-minute candles")
+    if live_sc["setups"].get("orb", {}).get("enabled"):
+        ob = live_sc["setups"]["orb"]
+        st.caption(f"Rules ({live_name}): first break above the {ob.get('range_minutes', 15)}-minute opening range "
+                   f"high while above VWAP, until {ob.get('last_entry_time', '11:00')} New York · stop below the "
+                   f"range low · target {live_sc['target_r']:g}R · {tf}-minute candles")
+    else:
+        st.caption(f"Rules ({live_name}): {step1}pattern at VWAP ({', '.join(on)}) → entry on break of the pattern "
+                   f"high · stop below the pattern low · target {live_sc['target_r']:g}R · {tf}-minute candles")
     st.caption(f"Updated {fmt_local(now_et(), TZ)} your time · data from Yahoo (about 1 min behind)"
                + (f" · refreshes every {refresh_s}s" if auto_refresh else " · auto-refresh off"))
     board = pd.DataFrame(rows)

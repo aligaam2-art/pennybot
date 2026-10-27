@@ -42,7 +42,10 @@ in `journal/trades.csv`; after the close it settles the trades, saves the day's 
 and writes `journal/days/<date>/summary.md`. See the Journal tab on the dashboard.
 
 The journal paper-trades several strategies side by side (`strategies:` in config.yaml): the
-current rules, the same with the market-structure filter, and morning-only entries. Each trade is
+current rules, the same with the market-structure filter, morning-only entries, and an opening range breakout
+(ORB: first break above the first 15 minutes' high, above VWAP, until 11:00 New York).
+Fills are realistic: the price when the bot noticed the signal; trades that had already run more
+than 0.3R past the entry are logged as 'missed'. Each trade is
 labelled with its strategy; the Journal tab compares them from `strategies_start`.
 Run it by hand: `python -m pennybot.journal once` (one check) or `finalize` (settle today).
 

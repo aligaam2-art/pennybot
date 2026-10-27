@@ -102,8 +102,15 @@ def settle(row: pd.Series, day5: pd.DataFrame, cfg: dict, final: bool) -> list |
     slip = sc.get("slippage_pct", 0.2) / 100
     entry, stop, target = float(row["entry"]), float(row["stop"]), float(row["target"])
     fill = entry * (1 + slip)
-    trig = time.fromisoformat(row["signal_time_et"])
-    after = day5[day5.index.time > trig]
+    if day5.empty:
+        return None
+    tf = pd.Timedelta(minutes=sc.get("timeframe_minutes", 5))
+    logged = str(row.get("logged_at_et", "") or "")
+    if logged:                                   # count only what happened after we got in
+        lt = pd.Timestamp.combine(day5.index[0].date(), time.fromisoformat(logged)).tz_localize(day5.index.tz)
+        after = day5[day5.index + tf > lt]
+    else:
+        after = day5[day5.index.time > time.fromisoformat(row["signal_time_et"])]
     exit_px = exit_ts = how = None
     for ts, bar in after.iterrows():
         if bar["low"] <= stop:
@@ -126,6 +133,21 @@ def settle(row: pd.Series, day5: pd.DataFrame, cfg: dict, final: bool) -> list |
 
 
 RESULT_COLS = ["status", "outcome", "exit_time_et", "exit_price", "r", "pnl_dollars"]
+
+
+def realistic_fill(planned: float, stop: float, price_now: float, sc: dict) -> tuple[float | None, str]:
+    """Price we could really have bought at when the bot noticed the signal.
+
+    Returns (fill, "") or (None, reason) when the trade must count as missed:
+    price already back at/below the stop, or already run more than max_chase_r
+    of the risk past the planned entry (a disciplined trader wouldn't chase it).
+    """
+    if price_now <= stop:
+        return None, "missed: price already at/below the stop when noticed"
+    fill = max(planned, price_now)
+    if fill - planned > sc.get("max_chase_r", 0.3) * (planned - stop):
+        return None, f"missed: price already ${price_now:.4g}, too far above entry ${planned:.4g}"
+    return fill, ""
 
 
 def save_trades(df: pd.DataFrame) -> None:
@@ -246,6 +268,7 @@ class Session:
                 day = day.iloc[:-1]                 # candle still forming
             if len(day) < 3:
                 continue
+            price_now = float(df[df.index.date == self.today]["close"].iloc[-1])
             for i in trades.index[(trades["ticker"] == t) & (trades["date"] == self.today.isoformat())
                                   & (trades["status"] == "open")]:
                 res = settle(trades.loc[i], day, self.cfg, final=False)
@@ -261,24 +284,32 @@ class Session:
                         continue
                     if t not in self.seen or tr.triggered_at < self.seen[t] - tf:
                         continue                        # happened before we were watching: hindsight
-                    shares, risk_d = S.position_size(tr.entry, tr.stop, self.sc)
+                    fill, missed = realistic_fill(tr.entry, tr.stop, price_now, scfg["signals"])
+                    entry = round(fill, 4) if fill else tr.entry
+                    shares, risk_d = S.position_size(entry, tr.stop, self.sc)
                     g = info.loc[t] if t in info.index else None
                     row = {"date": self.today.isoformat(), "strategy": sid, "ticker": t,
                            "grade": g["grade"] if g is not None else "", "score": g["score"] if g is not None else "",
                            "catalyst": g["catalyst"] if g is not None else "",
                            "headline": g["headline"] if g is not None else "",
                            "setup": S.SETUP_NAMES[tr.kind], "signal_time_et": tr.triggered_at.strftime("%H:%M"),
-                           "logged_at_et": now.strftime("%H:%M"), "entry": tr.entry, "stop": tr.stop,
+                           "logged_at_et": now.strftime("%H:%M"), "entry": entry, "stop": tr.stop,
                            "target": tr.target, "shares": shares, "risk_dollars": risk_d, "status": "open",
                            "outcome": "", "exit_time_et": "", "exit_price": "", "r": "", "pnl_dollars": ""}
+                    if missed:
+                        row.update(status="missed", outcome=missed, shares="", risk_dollars="")
+                        new_rows.append({k: str(v) for k, v in row.items()})
+                        log(f"MISSED {t} [{sid}] {row['setup']}: {missed}")
+                        continue
                     res = settle(pd.Series(row), day, self.cfg, final=False)
                     if res:
                         row.update(dict(zip(RESULT_COLS, res)))
                     new_rows.append({k: str(v) for k, v in row.items()})
-                    log(f"NEW SIGNAL {t} [{sid}] {row['setup']} entry {tr.entry} stop {tr.stop} target {tr.target}")
+                    log(f"NEW SIGNAL {t} [{sid}] {row['setup']} entry {entry} (planned {tr.entry}) "
+                        f"stop {tr.stop} target {tr.target}")
                     if res:
                         closed_now.append(pd.Series({k: str(v) for k, v in row.items()}))
-        self.alert_signals(new_rows)
+        self.alert_signals([r for r in new_rows if r["status"] != "missed"])
         self.alert_closed(closed_now)
         if new_rows:
             trades = pd.concat([trades, pd.DataFrame(new_rows, dtype=str)], ignore_index=True)
