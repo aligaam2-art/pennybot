@@ -45,7 +45,7 @@ from .selection import rank
 JOURNAL = ROOT / "journal"
 TRADES = JOURNAL / "trades.csv"
 SUMMARY = JOURNAL / "summary.csv"
-COLUMNS = ["date", "ticker", "grade", "score", "catalyst", "headline", "setup", "signal_time_et",
+COLUMNS = ["date", "strategy", "ticker", "grade", "score", "catalyst", "headline", "setup", "signal_time_et",
            "logged_at_et", "entry", "stop", "target", "shares", "risk_dollars", "status", "outcome",
            "exit_time_et", "exit_price", "r", "pnl_dollars"]
 POLL_MINUTES = 5
@@ -65,8 +65,29 @@ def day_dir(d: date):
 
 def load_trades() -> pd.DataFrame:
     if TRADES.exists():
-        return pd.read_csv(TRADES, dtype=str, keep_default_na=False)
+        df = pd.read_csv(TRADES, dtype=str, keep_default_na=False)
+        if "strategy" not in df.columns:            # trades from before side-by-side testing
+            df.insert(1, "strategy", "baseline")
+        return df
     return pd.DataFrame(columns=COLUMNS, dtype=str)
+
+
+def _merge(base: dict, changes: dict) -> dict:
+    out = dict(base)
+    for k, v in changes.items():
+        out[k] = _merge(base.get(k, {}), v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
+
+
+def strategies(cfg: dict) -> list[tuple[str, str, dict]]:
+    """(id, name, full config) for each strategy paper-traded side by side."""
+    items = cfg.get("strategies") or [{"id": "baseline", "name": "Current rules", "changes": {}}]
+    return [(x["id"], x.get("name", x["id"]),
+             {**cfg, "signals": _merge(cfg["signals"], x.get("changes") or {})}) for x in items]
+
+
+def strategy_names(cfg: dict) -> dict[str, str]:
+    return {sid: name for sid, name, _ in strategies(cfg)}
 
 
 def settle(row: pd.Series, day5: pd.DataFrame, cfg: dict, final: bool) -> list | None:
@@ -214,7 +235,7 @@ class Session:
         if missing:
             log(f"WARNING Yahoo returned no price data for {len(missing)}/{len(tickers)}: {', '.join(missing)}")
         info = ranked.set_index("ticker") if len(ranked) else pd.DataFrame()
-        new_rows = []
+        new_rows, closed_now = [], []
         for t in tickers:
             df = bars.get(t)
             if df is None or df.empty:
@@ -230,34 +251,35 @@ class Session:
                 res = settle(trades.loc[i], day, self.cfg, final=False)
                 if res:
                     trades.loc[i, RESULT_COLS] = [str(x) for x in res]
-                    log(f"{t} closed: {res[1]} {res[4]:+.2f}R")
-                    self.alert_closed(trades.loc[i])
-            day_trades, _, _ = S.run_day(day, t, self.cfg)
-            for tr in day_trades:
-                key = (trades["ticker"] == t) & (trades["date"] == self.today.isoformat()) \
-                    & (trades["signal_time_et"] == tr.triggered_at.strftime("%H:%M"))
-                if key.any():                       # already logged
-                    continue
-                if t not in self.seen or tr.triggered_at < self.seen[t] - tf:
-                    continue                        # happened before we were watching: hindsight
-                shares, risk_d = S.position_size(tr.entry, tr.stop, self.sc)
-                g = info.loc[t] if t in info.index else None
-                row = {"date": self.today.isoformat(), "ticker": t,
-                       "grade": g["grade"] if g is not None else "", "score": g["score"] if g is not None else "",
-                       "catalyst": g["catalyst"] if g is not None else "",
-                       "headline": g["headline"] if g is not None else "",
-                       "setup": S.SETUP_NAMES[tr.kind], "signal_time_et": tr.triggered_at.strftime("%H:%M"),
-                       "logged_at_et": now.strftime("%H:%M"), "entry": tr.entry, "stop": tr.stop,
-                       "target": tr.target, "shares": shares, "risk_dollars": risk_d, "status": "open",
-                       "outcome": "", "exit_time_et": "", "exit_price": "", "r": "", "pnl_dollars": ""}
-                res = settle(pd.Series(row), day, self.cfg, final=False)
-                if res:
-                    row.update(dict(zip(RESULT_COLS, res)))
-                new_rows.append({k: str(v) for k, v in row.items()})
-                log(f"NEW SIGNAL {t} {row['setup']} entry {tr.entry} stop {tr.stop} target {tr.target}")
-                self.alert_signal(row)
-                if res:
-                    self.alert_closed(pd.Series({k: str(v) for k, v in row.items()}))
+                    log(f"{t} [{trades.at[i, 'strategy']}] closed: {res[1]} {res[4]:+.2f}R")
+                    closed_now.append(trades.loc[i].copy())
+            for sid, _, scfg in strategies(self.cfg):
+                for tr in S.run_day(day, t, scfg)[0]:
+                    key = (trades["ticker"] == t) & (trades["date"] == self.today.isoformat()) \
+                        & (trades["strategy"] == sid) & (trades["signal_time_et"] == tr.triggered_at.strftime("%H:%M"))
+                    if key.any():                       # already logged
+                        continue
+                    if t not in self.seen or tr.triggered_at < self.seen[t] - tf:
+                        continue                        # happened before we were watching: hindsight
+                    shares, risk_d = S.position_size(tr.entry, tr.stop, self.sc)
+                    g = info.loc[t] if t in info.index else None
+                    row = {"date": self.today.isoformat(), "strategy": sid, "ticker": t,
+                           "grade": g["grade"] if g is not None else "", "score": g["score"] if g is not None else "",
+                           "catalyst": g["catalyst"] if g is not None else "",
+                           "headline": g["headline"] if g is not None else "",
+                           "setup": S.SETUP_NAMES[tr.kind], "signal_time_et": tr.triggered_at.strftime("%H:%M"),
+                           "logged_at_et": now.strftime("%H:%M"), "entry": tr.entry, "stop": tr.stop,
+                           "target": tr.target, "shares": shares, "risk_dollars": risk_d, "status": "open",
+                           "outcome": "", "exit_time_et": "", "exit_price": "", "r": "", "pnl_dollars": ""}
+                    res = settle(pd.Series(row), day, self.cfg, final=False)
+                    if res:
+                        row.update(dict(zip(RESULT_COLS, res)))
+                    new_rows.append({k: str(v) for k, v in row.items()})
+                    log(f"NEW SIGNAL {t} [{sid}] {row['setup']} entry {tr.entry} stop {tr.stop} target {tr.target}")
+                    if res:
+                        closed_now.append(pd.Series({k: str(v) for k, v in row.items()}))
+        self.alert_signals(new_rows)
+        self.alert_closed(closed_now)
         if new_rows:
             trades = pd.concat([trades, pd.DataFrame(new_rows, dtype=str)], ignore_index=True)
         save_trades(trades)
@@ -269,25 +291,39 @@ class Session:
                            "You'll get an alert here when a signal triggers.", tags="eyes", priority="low"):
                 started.write_text(now.isoformat())
 
-    def alert_signal(self, row: dict) -> None:
-        when = notify.local_hhmm(row["date"], row["signal_time_et"], self.cfg)
-        notify.send(self.cfg, f"SIGNAL {row['ticker']} ({row['grade'] or '-'})",
-                    f"{row['setup']} at {when} your time\n"
-                    f"Entry ${float(row['entry']):.4g} · Stop ${float(row['stop']):.4g} · "
-                    f"Target ${float(row['target']):.4g}\n"
-                    f"{row['shares']} shares, risk ${float(row['risk_dollars']):.2f} (paper)\n"
-                    f"{row['headline'] or ''}".strip(),
-                    tags="green_circle,chart_with_upwards_trend", priority="high")
+    def alert_signals(self, rows: list[dict]) -> None:
+        names = strategy_names(self.cfg)
+        groups: dict[tuple, list[dict]] = {}
+        for r in rows:
+            groups.setdefault((r["ticker"], r["signal_time_et"], r["setup"]), []).append(r)
+        for (ticker, sig_time, setup), rs in groups.items():
+            row = rs[0]
+            when = notify.local_hhmm(row["date"], sig_time, self.cfg)
+            notify.send(self.cfg, f"SIGNAL {ticker} ({row['grade'] or '-'})",
+                        f"{setup} at {when} your time\n"
+                        f"Entry ${float(row['entry']):.4g} · Stop ${float(row['stop']):.4g} · "
+                        f"Target ${float(row['target']):.4g}\n"
+                        f"{row['shares']} shares, risk ${float(row['risk_dollars']):.2f} (paper)\n"
+                        f"Taken by: {', '.join(names.get(r['strategy'], r['strategy']) for r in rs)}\n"
+                        f"{row['headline'] or ''}".strip(),
+                        tags="green_circle,chart_with_upwards_trend", priority="high")
 
-    def alert_closed(self, row: pd.Series) -> None:
-        r = float(row["r"])
-        when = notify.local_hhmm(row["date"], row["exit_time_et"], self.cfg)
-        word = {"target": "TARGET HIT", "stop": "STOPPED OUT", "time": "CLOSED AT END OF DAY"}.get(row["outcome"],
-                                                                                                row["outcome"])
-        notify.send(self.cfg, f"{word} {row['ticker']} {r:+.2f}R",
-                    f"{row['setup']}: exit ${float(row['exit_price']):.4g} at {when} your time\n"
-                    f"Paper result: {r:+.2f}R = ${float(row['pnl_dollars']):+.2f}",
-                    tags="white_check_mark" if r > 0 else "x")
+    def alert_closed(self, rows: list) -> None:
+        names = strategy_names(self.cfg)
+        groups: dict[tuple, list] = {}
+        for r in rows:
+            groups.setdefault((r["ticker"], r["signal_time_et"]), []).append(r)
+        for (ticker, _), rs in groups.items():
+            row = rs[0]
+            r = float(row["r"])
+            when = notify.local_hhmm(row["date"], row["exit_time_et"], self.cfg)
+            word = {"target": "TARGET HIT", "stop": "STOPPED OUT",
+                    "time": "CLOSED AT END OF DAY"}.get(row["outcome"], row["outcome"])
+            notify.send(self.cfg, f"{word} {ticker} {r:+.2f}R",
+                        f"{row['setup']}: exit ${float(row['exit_price']):.4g} at {when} your time\n"
+                        f"Paper result: {r:+.2f}R = ${float(row['pnl_dollars']):+.2f} each for "
+                        f"{', '.join(names.get(x['strategy'], x['strategy']) for x in rs)}",
+                        tags="white_check_mark" if r > 0 else "x")
 
 
 # ---------------------------------------------------------------- end of day
@@ -325,27 +361,33 @@ def finalize(cfg: dict, d: date | None = None, force: bool = False) -> None:
             trades.loc[i, RESULT_COLS] = [str(x) for x in res]
     save_trades(trades)
 
-    day_trades = trades[mask & (trades["status"] == "closed")]
-    r = pd.to_numeric(day_trades["r"])
-    row = {"date": d.isoformat(), "trades": len(day_trades), "wins": int((r > 0).sum()),
-           "total_r": round(r.sum(), 2), "pnl_dollars": round(pd.to_numeric(day_trades["pnl_dollars"]).sum(), 2),
-           "stocks_watched": len(first_seen(d))}
+    watched = len(first_seen(d))
+    rows, lines = [], [f"# {d:%A %d %B %Y}", "", f"Stocks watched: {watched}", ""]
+    for sid, name, _ in strategies(cfg):
+        st_trades = trades[mask & (trades["status"] == "closed") & (trades["strategy"] == sid)]
+        r = pd.to_numeric(st_trades["r"])
+        row = {"date": d.isoformat(), "strategy": sid, "trades": len(st_trades), "wins": int((r > 0).sum()),
+               "total_r": round(r.sum(), 2), "pnl_dollars": round(pd.to_numeric(st_trades["pnl_dollars"]).sum(), 2),
+               "stocks_watched": watched}
+        rows.append(row)
+        lines.append(f"{name}: {row['trades']} trades, {row['wins']} wins, {row['total_r']:+.2f}R, "
+                     f"${row['pnl_dollars']:+.2f}")
+        for _, t in st_trades.iterrows():
+            lines.append(f"  - {t['ticker']} ({t['grade']}) {t['setup']} at {t['signal_time_et']} ET: "
+                         f"{t['outcome']} {float(t['r']):+.2f}R")
     summ = pd.read_csv(SUMMARY, dtype={"date": str}) if SUMMARY.exists() else pd.DataFrame()
-    summ = pd.concat([summ[summ.get("date", pd.Series(dtype=str)) != d.isoformat()] if len(summ) else summ,
-                      pd.DataFrame([row])], ignore_index=True)
+    if len(summ) and "strategy" not in summ.columns:
+        summ.insert(1, "strategy", "baseline")
+    if len(summ):
+        summ = summ[summ["date"] != d.isoformat()]
+    summ = pd.concat([summ, pd.DataFrame(rows)], ignore_index=True)
     summ.to_csv(SUMMARY, index=False)
-    lines = [f"# {d:%A %d %B %Y}", "",
-             f"{row['trades']} paper trades, {row['wins']} wins, {row['total_r']:+.2f}R, ${row['pnl_dollars']:+.2f}",
-             f"Stocks watched: {row['stocks_watched']}", ""]
-    for _, t in day_trades.iterrows():
-        lines.append(f"- {t['ticker']} ({t['grade']}) {t['setup']} at {t['signal_time_et']} ET: "
-                     f"{t['outcome']} {float(t['r']):+.2f}R")
     (folder / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     (folder / "finalized").write_text(now_et().isoformat())
-    log("finalized: " + lines[2])
+    log("finalized: " + " | ".join(lines[4:]))
     if cfg.get("alerts", {}).get("daily_summary", True) and not force:
-        notify.send(cfg, f"Pennybot day summary {d:%a %d %b}",
-                    "\n".join([lines[2]] + lines[5:]) or lines[2], tags="memo", priority="low")
+        notify.send(cfg, f"Pennybot day summary {d:%a %d %b}", "\n".join(lines[2:]),
+                    tags="memo", priority="low")
 
 
 # ---------------------------------------------------------------- main loop

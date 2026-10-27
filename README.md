@@ -40,6 +40,10 @@ $1,000 paper account (change in config.yaml). Use the Backtest tab to see how th
 market hours. Every 5 minutes it runs the screener + signals and logs each live signal as a paper trade
 in `journal/trades.csv`; after the close it settles the trades, saves the day's bars to `journal/bars/`
 and writes `journal/days/<date>/summary.md`. See the Journal tab on the dashboard.
+
+The journal paper-trades several strategies side by side (`strategies:` in config.yaml): the
+current rules, the same with the market-structure filter, and morning-only entries. Each trade is
+labelled with its strategy; the Journal tab compares them from `strategies_start`.
 Run it by hand: `python -m pennybot.journal once` (one check) or `finalize` (settle today).
 
 ## Coming next

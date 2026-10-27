@@ -146,6 +146,11 @@ def render_journal():
     jdir = Path(output.ROOT / "journal")
     trades_path = jdir / "trades.csv"
     jt = pd.read_csv(trades_path, dtype={"date": str}) if trades_path.exists() else pd.DataFrame()
+    if len(jt) and "strategy" not in jt.columns:
+        jt.insert(1, "strategy", "baseline")
+    names = {x["id"]: x.get("name", x["id"]) for x in cfg.get("strategies", [])} or {"baseline": "Current rules"}
+    if len(jt):
+        jt["strategy name"] = jt["strategy"].map(lambda x: names.get(x, x))
     if jt.empty:
         st.info("No paper trades logged yet. The journal starts on the next US trading day "
                 f"(from {times['market_opens']:%H:%M} your time) and fills in as signals appear.")
@@ -153,6 +158,44 @@ def render_journal():
         closed = jt[jt["status"] == "closed"].copy()
         closed["r"] = pd.to_numeric(closed["r"])
         closed["pnl_dollars"] = pd.to_numeric(closed["pnl_dollars"])
+
+        # ---- side-by-side comparison (only days when every strategy was running)
+        start = str(cfg.get("strategies_start", ""))
+        if len(names) > 1:
+            st.markdown("#### Strategies side by side")
+            same = closed[closed["date"] >= start] if start else closed
+            st.caption(f"Same stocks, same moments, from {start or 'the start'} (when side-by-side testing began). "
+                       "Judge only after 30+ trades per strategy; before that, differences are mostly luck.")
+            rows = []
+            for sid, name in names.items():
+                r = same.loc[same["strategy"] == sid, "r"]
+                p = same.loc[same["strategy"] == sid, "pnl_dollars"]
+                rows.append({"Strategy": name, "Trades": len(r),
+                             "Win rate": (r > 0).mean() * 100 if len(r) else None,
+                             "Avg per trade (R)": r.mean() if len(r) else None,
+                             "Total (R)": r.sum(), "Paper P&L ($)": p.sum()})
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
+                "Win rate": st.column_config.NumberColumn(format="%.0f%%"),
+                "Avg per trade (R)": st.column_config.NumberColumn(format="%+.2f"),
+                "Total (R)": st.column_config.NumberColumn(format="%+.1f"),
+                "Paper P&L ($)": st.column_config.NumberColumn(format="$%+.0f")})
+            if len(same) > 1:
+                curve = same.sort_values(["date", "signal_time_et"]).copy()
+                curve["n"] = curve.groupby("strategy").cumcount() + 1
+                curve["equity"] = sc["account_size"] + curve.groupby("strategy")["pnl_dollars"].cumsum()
+                st.altair_chart(alt.Chart(curve).mark_line(point=True).encode(
+                    x=alt.X("n:Q", title="paper trade # (per strategy)"),
+                    y=alt.Y("equity:Q", title="paper account $", scale=alt.Scale(zero=False)),
+                    color=alt.Color("strategy name:N", title=None, legend=alt.Legend(orient="bottom")),
+                    tooltip=["strategy name", "date", "ticker", "outcome", "r", "equity"]).properties(height=240),
+                    width="stretch")
+
+        choice = st.selectbox("Show trades for", list(names.values()) + ["All strategies"],
+                              index=0, key="journal_strategy")
+        if choice != "All strategies":
+            sid = next(k for k, v in names.items() if v == choice)
+            closed = closed[closed["strategy"] == sid]
+            jt = jt[jt["strategy"] == sid]
         k = st.columns(5)
         k[0].metric("Paper trades", len(closed), help=f"{jt['date'].nunique()} trading days, "
                     f"{(jt['status'] == 'open').sum()} still open")
@@ -162,14 +205,6 @@ def render_journal():
         k[4].metric("Paper P&L", f"${closed['pnl_dollars'].sum():+,.0f}")
 
         if len(closed) > 1:
-            curve = closed.reset_index(drop=True)
-            curve["trade"] = curve.index + 1
-            curve["equity"] = sc["account_size"] + curve["pnl_dollars"].cumsum()
-            st.altair_chart(alt.Chart(curve).mark_line(point=True).encode(
-                x=alt.X("trade:Q", title="paper trade #"),
-                y=alt.Y("equity:Q", title="paper account $", scale=alt.Scale(zero=False)),
-                tooltip=["date", "ticker", "setup", "outcome", "r", "equity"]).properties(height=220),
-                width="stretch")
             c1, c2 = st.columns(2)
             for col, by, title in ((c1, "setup", "By setup"), (c2, "grade", "By selection grade")):
                 g = closed.groupby(by)["r"].agg(trades="count", win_rate=lambda r: (r > 0).mean() * 100,
@@ -188,12 +223,15 @@ def render_journal():
         view = jt.iloc[::-1].copy()
         view["signal (yours)"] = view.apply(lambda r: local_time(r, "signal_time_et"), axis=1)
         view["exit (yours)"] = view.apply(lambda r: local_time(r, "exit_time_et"), axis=1)
-        st.dataframe(view[["date", "ticker", "grade", "setup", "signal (yours)", "entry", "stop", "target",
+        st.dataframe(view[["date", "strategy name", "ticker", "grade", "setup", "signal (yours)", "entry", "stop", "target",
                            "shares", "status", "outcome", "exit (yours)", "exit_price", "r", "pnl_dollars",
                            "headline"]], hide_index=True, width="stretch")
 
+        if view.empty:
+            st.caption("No trades for this strategy yet.")
+            return
         pick = st.selectbox("Chart a logged trade", range(len(view)), format_func=lambda i: (
-            f"{view.iloc[i]['date']} · {view.iloc[i]['ticker']} · {view.iloc[i]['setup']} · "
+            f"{view.iloc[i]['date']} · {view.iloc[i]['strategy name']} · {view.iloc[i]['ticker']} · {view.iloc[i]['setup']} · "
             f"{view.iloc[i]['outcome'] or 'open'}"))
         row = view.iloc[pick]
         d = pd.Timestamp(row["date"]).date()
@@ -204,7 +242,7 @@ def render_journal():
             day_bars = day_bars[day_bars.index.date == d] if len(day_bars) else day_bars
         if len(day_bars):
             day5 = B.resample(day_bars, tf)
-            trs, _, spotted_j = S.run_day(day5, row["ticker"], cfg)
+            trs, _, spotted_j = S.run_day(day5, row["ticker"], cfg)   # markers only; levels come from the log
             tr = [t for t in trs if t.triggered_at.strftime("%H:%M") == row["signal_time_et"]]
             sig_j = S.LiveSignal(row["ticker"], "", row["setup"], row["entry"], row["stop"], row["target"])
             st.plotly_chart(intraday_chart(B.add_indicators(day5, cfg), None, sig_j, tr, TZ, row["ticker"],
@@ -215,7 +253,10 @@ def render_journal():
     summ_path = jdir / "summary.csv"
     if summ_path.exists():
         st.markdown("**Day by day**")
-        st.dataframe(pd.read_csv(summ_path).iloc[::-1], hide_index=True, width="stretch")
+        summ = pd.read_csv(summ_path)
+        if "strategy" in summ.columns:
+            summ["strategy"] = summ["strategy"].map(lambda x: names.get(x, x))
+        st.dataframe(summ.iloc[::-1], hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ data
 tf = sc.get("timeframe_minutes", 5)

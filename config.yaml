@@ -171,3 +171,20 @@ alerts:
   email: true                  # also email each alert (via a daily GitHub issue - GitHub emails you each comment)
   daily_start_message: true    # "Pennybot is watching N stocks" once per trading day
   daily_summary: true          # results after the close
+
+# ------------------------------------------------------------------
+# Strategies the cloud journal paper-trades SIDE BY SIDE (same stocks,
+# same moments), so their results can be compared fairly in the Journal tab.
+# Each starts from the signals: settings above and changes only what's listed.
+# ------------------------------------------------------------------
+strategies_start: "2026-10-28"   # first day all strategies ran together (for the fair comparison)
+strategies:
+  - id: baseline
+    name: Current rules
+    changes: {}
+  - id: structure
+    name: With market structure
+    changes: {structure: {enabled: true}}
+  - id: morning
+    name: Morning only
+    changes: {last_entry_time: "11:30"}
