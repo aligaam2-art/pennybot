@@ -10,3 +10,4 @@ date,strategy,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_a
 2026-10-27,baseline,MCRP,C,40,⚪ none,Micropolis Robotics DPR2 Autonomous Patrols Lead Dubai Police’s “Proud of UAE” Cycling Race,VWAP + bullish engulfing,14:35,15:28,0.5419,0.5218,0.5821,497,9.99,closed,stop,15:05,0.5208,-1.11,-11.1
 2026-10-28,baseline,BKYI,B,52,🟢 strong,"Hayward Holdings, Inc. (HAYW) Q3 Earnings and Revenues Beat Estimates",VWAP + morning star,10:05,10:14,3.21,3.03,3.57,55,9.9,open,,,,,
 2026-10-28,morning,BKYI,B,52,🟢 strong,"Hayward Holdings, Inc. (HAYW) Q3 Earnings and Revenues Beat Estimates",VWAP + morning star,10:05,10:14,3.21,3.03,3.57,55,9.9,open,,,,,
+2026-10-28,orb,BKYI,B,52,🟢 strong,"Hayward Holdings, Inc. (HAYW) Q3 Earnings and Revenues Beat Estimates",Opening range breakout,10:35,10:44,3.26,3.0301,3.7198,43,9.89,open,,,,,
