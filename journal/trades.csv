@@ -14,3 +14,9 @@ date,strategy,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_a
 2026-10-29,orb,JDZG,C,41,⚪ none,JIADE LIMITED Announces Resumption of Trading on Nasdaq,Opening range breakout,10:10,10:17,1.6201,1.34,2.0,35,9.8,closed,stop,13:35,1.3373,-1.02,-10.2
 2026-10-29,baseline,JFIN,C,45,⚪ none,Asian Equities Traded in the US as American Depositary Receipts Decline in Thursday Trading,VWAP + bullish engulfing,12:00,12:07,1.71,1.63,1.87,124,9.92,closed,target,12:15,1.8663,1.91,19.1
 2026-10-30,baseline,XPOF,A,71,🟢 strong,Xponential Fitness shares jump on reports of takeover bid,VWAP + bullish engulfing,15:25,15:36,4.455,4.36,4.585,105,9.97,closed,time,15:55,4.4411,-0.24,-2.4
+2026-11-02,baseline,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
+2026-11-02,structure,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
+2026-11-02,morning,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
+2026-11-02,baseline,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
+2026-11-02,structure,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
+2026-11-02,morning,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
