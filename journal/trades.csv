@@ -20,3 +20,4 @@ date,strategy,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_a
 2026-11-02,baseline,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
 2026-11-02,structure,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
 2026-11-02,morning,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
+2026-11-02,baseline,NVA,C,35,⚪ none,Presenting on Emerging Growth Conference 97 Day 2 on October 29; Register to live stream,VWAP + bullish engulfing,12:15,12:23,4.575,4.47,4.785,95,9.98,closed,stop,12:20,4.4611,-1.17,-11.7
