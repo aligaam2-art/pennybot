@@ -17,6 +17,6 @@ date,strategy,ticker,grade,score,catalyst,headline,setup,signal_time_et,logged_a
 2026-11-02,baseline,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
 2026-11-02,structure,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
 2026-11-02,morning,WETO,C,32,⚪ none,Wetour Robotics Announces Temporary Pause of ATM Share Sales,VWAP + morning star,11:00,11:08,1.0001,0.9026,1.1951,102,9.95,open,,,,,
-2026-11-02,baseline,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
-2026-11-02,structure,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
-2026-11-02,morning,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,open,,,,,
+2026-11-02,baseline,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
+2026-11-02,structure,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
+2026-11-02,morning,PLCE,C,42,⚪ none,The Children’s Place Announces Appointment to Its Board of Directors,VWAP + bullish engulfing,11:10,11:18,0.5096,0.485,0.5588,406,9.99,closed,target,11:40,0.5577,1.91,19.1
