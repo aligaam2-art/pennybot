@@ -23,3 +23,7 @@ date,strategy,trades,wins,total_r,pnl_dollars,stocks_watched
 2026-10-30,structure,0,0,0.0,0.0,7
 2026-10-30,morning,0,0,0.0,0.0,7
 2026-10-30,orb,0,0,0.0,0.0,7
+2026-11-02,baseline,4,1,-1.44,-14.4,7
+2026-11-02,structure,2,1,0.87,8.7,7
+2026-11-02,morning,2,1,0.87,8.7,7
+2026-11-02,orb,0,0,0.0,0.0,7
