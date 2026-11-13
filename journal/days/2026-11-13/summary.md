@@ -1,6 +1,6 @@
 # Friday 13 November 2026
 
-Stocks watched: 14
+Stocks watched: 0
 
 Current rules: 0 trades, 0 wins, +0.00R, $+0.00
 With market structure: 0 trades, 0 wins, +0.00R, $+0.00
